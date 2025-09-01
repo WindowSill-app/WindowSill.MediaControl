@@ -74,6 +74,7 @@ internal class MediaControlView
                     .Spacing(8)
                     .Children(
                         _thumbnailAndTitlesGrid
+                            .IsHitTestVisible(true)
                             .Background(new SolidColorBrush(Colors.Transparent))
                             .ColumnSpacing(8)
                             .Visibility(x => x.Binding(() => viewModel.ShowTitleArtistAndThumbnail).Converter(new BoolToVisibilityConverter()))
@@ -152,9 +153,15 @@ internal class MediaControlView
 
         OnIsSillOrientationOrSizeChanged(null, EventArgs.Empty);
         View.IsSillOrientationOrSizeChanged += OnIsSillOrientationOrSizeChanged;
+        _thumbnailAndTitlesGrid.PointerPressed += ThumbnailAndTitlesGrid_PointerPressed;
     }
 
     internal SillView View { get; }
+
+    private void ThumbnailAndTitlesGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _viewModel.SwitchToPlayingSourceWindow();
+    }
 
     private void OnIsSillOrientationOrSizeChanged(object? sender, EventArgs e)
     {

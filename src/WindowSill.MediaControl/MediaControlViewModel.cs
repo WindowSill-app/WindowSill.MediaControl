@@ -4,9 +4,9 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml.Media.Imaging;
 
+using NPSMLib;
+
 using Windows.Graphics.Imaging;
-using Windows.Media.Control;
-using Windows.Storage.Streams;
 
 using WindowSill.API;
 
@@ -17,11 +17,13 @@ internal sealed partial class MediaControlViewModel : ObservableObject
     private const uint HorizontalThumbnailSize = 40;
     private const uint VerticalThumbnailSize = 64;
 
+    private readonly Lock @lock = new();
     private readonly ILogger _logger;
     private readonly ISettingsProvider _settingsProvider;
 
-    private GlobalSystemMediaTransportControlsSessionManager? _sessionManager;
-    private GlobalSystemMediaTransportControlsSession? _currentSession;
+    private NowPlayingSessionManager? _sessionManager;
+    private NowPlayingSession? _currentSession;
+    private MediaPlaybackDataSource? _mediaPlaybackDataSource;
 
     public MediaControlViewModel(ISettingsProvider settingsProvider)
     {
@@ -66,27 +68,23 @@ internal sealed partial class MediaControlViewModel : ObservableObject
     [ObservableProperty]
     public partial bool ShouldAppearInSill { get; set; }
 
+    internal void SwitchToPlayingSourceWindow()
+    {
+        lock (@lock)
+        {
+            if (_currentSession is not null)
+            {
+                WindowHelper.ActivateWindow(_currentSession.Hwnd);
+            }
+        }
+    }
+
     [RelayCommand]
-    private async Task PlayPauseAsync()
+    private void PlayPause()
     {
         try
         {
-            GlobalSystemMediaTransportControlsSession? currentSession = _currentSession;
-            if (currentSession is not null)
-            {
-                GlobalSystemMediaTransportControlsSessionPlaybackInfo? playback = currentSession.GetPlaybackInfo();
-                if (playback is not null)
-                {
-                    if (playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-                    {
-                        await currentSession.TryPauseAsync();
-                    }
-                    else if (playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
-                    {
-                        await currentSession.TryPlayAsync();
-                    }
-                }
-            }
+            _mediaPlaybackDataSource?.SendMediaPlaybackCommand(MediaPlaybackCommands.PlayPauseToggle);
         }
         catch (Exception ex)
         {
@@ -95,15 +93,11 @@ internal sealed partial class MediaControlViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task NextAsync()
+    private void Next()
     {
         try
         {
-            GlobalSystemMediaTransportControlsSession? currentSession = _currentSession;
-            if (currentSession is not null)
-            {
-                await currentSession.TrySkipNextAsync();
-            }
+            _mediaPlaybackDataSource?.SendMediaPlaybackCommand(MediaPlaybackCommands.Next);
         }
         catch (Exception ex)
         {
@@ -112,15 +106,11 @@ internal sealed partial class MediaControlViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task PreviousAsync()
+    private void Previous()
     {
         try
         {
-            GlobalSystemMediaTransportControlsSession? currentSession = _currentSession;
-            if (currentSession is not null)
-            {
-                await currentSession.TrySkipPreviousAsync();
-            }
+            _mediaPlaybackDataSource?.SendMediaPlaybackCommand(MediaPlaybackCommands.Previous);
         }
         catch (Exception ex)
         {
@@ -136,98 +126,105 @@ internal sealed partial class MediaControlViewModel : ObservableObject
         }
         else if (args.SettingName == PredefinedSettings.SillLocation.Name)
         {
-            UpdateInfoAsync(_sessionManager?.GetCurrentSession()).Forget();
+            UpdateInfoAsync(_sessionManager?.CurrentSession).Forget();
         }
     }
 
-    private void SessionManager_SessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, SessionsChangedEventArgs args)
+    private void SessionManager_SessionListChanged(object? sender, NowPlayingSessionManagerEventArgs e)
     {
-        UpdateInfoAsync(_sessionManager?.GetCurrentSession()).Forget();
+        UpdateInfoAsync(_sessionManager?.CurrentSession).Forget();
     }
 
-    private void SessionManager_CurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, CurrentSessionChangedEventArgs args)
+    private void MediaPlaybackDataSource_MediaPlaybackDataChanged(object? sender, MediaPlaybackDataChangedArgs e)
     {
-        UpdateInfoAsync(_sessionManager?.GetCurrentSession()).Forget();
-    }
-
-    private void CurrentSession_PlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args)
-    {
-        UpdateInfoAsync(sender).Forget();
-    }
-
-    private void CurrentSession_MediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
-    {
-        UpdateInfoAsync(sender).Forget();
+        UpdateInfoAsync(_sessionManager?.CurrentSession).Forget();
     }
 
     private async Task InitializeAsync()
     {
         await ThreadHelper.RunOnUIThreadAsync(async () =>
         {
-            _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            _sessionManager = new NowPlayingSessionManager();
 
             if (_sessionManager is not null)
             {
-                _sessionManager.SessionsChanged += SessionManager_SessionsChanged;
-                _sessionManager.CurrentSessionChanged += SessionManager_CurrentSessionChanged;
+                _sessionManager.SessionListChanged += SessionManager_SessionListChanged;
 
-                await UpdateInfoAsync(_sessionManager?.GetCurrentSession());
+                await UpdateInfoAsync(_sessionManager.CurrentSession);
             }
         });
     }
 
-    private async Task UpdateInfoAsync(GlobalSystemMediaTransportControlsSession? session)
+    private async Task UpdateInfoAsync(NowPlayingSession? session)
     {
         await ThreadHelper.RunOnUIThreadAsync(async () =>
         {
-            if (_currentSession is not null)
+            lock (@lock)
             {
-                _currentSession.PlaybackInfoChanged -= CurrentSession_PlaybackInfoChanged;
-                _currentSession.MediaPropertiesChanged -= CurrentSession_MediaPropertiesChanged;
-            }
-
-            _currentSession = session;
-
-            if (_currentSession is not null)
-            {
-                _currentSession.PlaybackInfoChanged += CurrentSession_PlaybackInfoChanged;
-                _currentSession.MediaPropertiesChanged += CurrentSession_MediaPropertiesChanged;
-
-                try
+                if (session != _currentSession)
                 {
-                    GlobalSystemMediaTransportControlsSessionMediaProperties mediaInfo = await _currentSession.TryGetMediaPropertiesAsync();
-                    GlobalSystemMediaTransportControlsSessionPlaybackInfo playback = _currentSession.GetPlaybackInfo();
 
-                    SongName = mediaInfo.Title;
-                    ArtistName = mediaInfo.Artist;
-                    SongAndArtistName = $"{mediaInfo.Artist} - {mediaInfo.Title}";
+                    if (_currentSession is not null && _mediaPlaybackDataSource is not null)
+                    {
+                        _mediaPlaybackDataSource.MediaPlaybackDataChanged -= MediaPlaybackDataSource_MediaPlaybackDataChanged;
+                    }
 
-                    (ImageSource? thumbnail, ImageSource? thumbnailLarge) = await GetThumbnailImageSourceAsync(mediaInfo.Thumbnail);
-                    Thumbnail = thumbnail;
-                    ThumbnailLarge = thumbnailLarge;
+                    _currentSession = session;
 
-                    UpdatePlaybackInfo(playback);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error while trying to retrieve media information.");
+                    if (_currentSession is not null)
+                    {
+                        _mediaPlaybackDataSource = _currentSession.ActivateMediaPlaybackDataSource();
+                        _mediaPlaybackDataSource.MediaPlaybackDataChanged += MediaPlaybackDataSource_MediaPlaybackDataChanged;
+                    }
                 }
             }
 
-            // Ensure proper state reset when session is null
-            UpdatePlaybackInfo(null);
+            var currentSession = _currentSession;
+            var mediaPlaybackDataSource = _mediaPlaybackDataSource;
+
+            try
+            {
+                if (currentSession is not null && mediaPlaybackDataSource is not null)
+                {
+                    try
+                    {
+                        MediaObjectInfo mediaInfo = mediaPlaybackDataSource.GetMediaObjectInfo();
+
+                        SongName = mediaInfo.Title;
+                        ArtistName = mediaInfo.Artist;
+                        SongAndArtistName = $"{mediaInfo.Artist} - {mediaInfo.Title}";
+
+                        (ImageSource? thumbnail, ImageSource? thumbnailLarge) = await GetThumbnailImageSourceAsync(mediaPlaybackDataSource.GetThumbnailStream());
+                        Thumbnail = thumbnail;
+                        ThumbnailLarge = thumbnailLarge;
+
+                        UpdatePlaybackInfo(mediaPlaybackDataSource.GetMediaPlaybackInfo());
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error while trying to retrieve media information.");
+                    }
+                }
+
+                // Ensure proper state reset when session is null
+                UpdatePlaybackInfo(null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while trying to update media information.");
+            }
         });
     }
 
-    private void UpdatePlaybackInfo(GlobalSystemMediaTransportControlsSessionPlaybackInfo? playback)
+    private void UpdatePlaybackInfo(MediaPlaybackInfo? playback)
     {
         if (playback is not null)
         {
-            IsNextAvailable = playback.Controls.IsNextEnabled;
-            IsPreviousAvailable = playback.Controls.IsPreviousEnabled;
-            IsPlayPauseAvailable = playback.Controls.IsPauseEnabled || playback.Controls.IsPlayEnabled;
-            IsPlaying = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            IsNextAvailable = playback.Value.PlaybackCaps.HasFlag(MediaPlaybackCapabilities.Next);
+            IsPreviousAvailable = playback.Value.PlaybackCaps.HasFlag(MediaPlaybackCapabilities.Previous);
+            IsPlayPauseAvailable = playback.Value.PlaybackCaps.HasFlag(MediaPlaybackCapabilities.PlayPauseToggle);
+            IsPlaying = playback.Value.PlaybackState == MediaPlaybackState.Playing;
             ShouldAppearInSill = !string.IsNullOrEmpty(SongName);
         }
         else
@@ -240,58 +237,60 @@ internal sealed partial class MediaControlViewModel : ObservableObject
         }
     }
 
-    private async Task<(ImageSource? thumbnail, ImageSource? thumbnailLarge)> GetThumbnailImageSourceAsync(IRandomAccessStreamReference thumbnail)
+    private async Task<(ImageSource? thumbnail, ImageSource? thumbnailLarge)> GetThumbnailImageSourceAsync(Stream thumbnail)
     {
         try
         {
             if (thumbnail is not null)
             {
-                using IRandomAccessStreamWithContentType stream = await thumbnail.OpenReadAsync();
-                if (stream != null)
+                using var thumbnailStream = thumbnail.AsRandomAccessStream();
+
+                // Create the decoder from the stream
+                BitmapDecoder decoder = await BitmapDecoder.CreateAsync(thumbnailStream);
+
+                // Get the SoftwareBitmap representation of the file
+                SoftwareBitmap thumbnailLarge = await decoder.GetSoftwareBitmapAsync();
+                if (thumbnailLarge.BitmapPixelFormat != BitmapPixelFormat.Bgra8 || thumbnailLarge.BitmapAlphaMode == BitmapAlphaMode.Straight)
                 {
-                    // Create the decoder from the stream
-                    BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
-
-                    // Get the SoftwareBitmap representation of the file
-                    SoftwareBitmap thumbnailLarge = await decoder.GetSoftwareBitmapAsync();
-                    if (thumbnailLarge.BitmapPixelFormat != BitmapPixelFormat.Bgra8 || thumbnailLarge.BitmapAlphaMode == BitmapAlphaMode.Straight)
-                    {
-                        thumbnailLarge = SoftwareBitmap.Convert(thumbnailLarge, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-                    }
-
-                    // Scale down for the small thumbnail
-                    uint size
-                        = _settingsProvider.GetSetting(PredefinedSettings.SillLocation)
-                        is SillLocation.Left or SillLocation.Right
-                        ? VerticalThumbnailSize
-                        : HorizontalThumbnailSize;
-
-                    var transform = new BitmapTransform()
-                    {
-                        ScaledWidth = size,
-                        ScaledHeight = size,
-                        InterpolationMode = BitmapInterpolationMode.Fant
-                    };
-                    SoftwareBitmap thumbnailSmall
-                        = await decoder.GetSoftwareBitmapAsync(
-                            thumbnailLarge.BitmapPixelFormat,
-                            thumbnailLarge.BitmapAlphaMode,
-                            transform,
-                            ExifOrientationMode.IgnoreExifOrientation,
-                            ColorManagementMode.ColorManageToSRgb);
-
-                    var sourceLarge = new SoftwareBitmapSource();
-                    await sourceLarge.SetBitmapAsync(thumbnailLarge);
-
-                    var sourceSmall = new SoftwareBitmapSource();
-                    await sourceSmall.SetBitmapAsync(thumbnailSmall);
-                    return (sourceSmall, sourceLarge);
+                    thumbnailLarge = SoftwareBitmap.Convert(thumbnailLarge, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
                 }
+
+                // Scale down for the small thumbnail
+                uint size
+                    = _settingsProvider.GetSetting(PredefinedSettings.SillLocation)
+                    is SillLocation.Left or SillLocation.Right
+                    ? VerticalThumbnailSize
+                    : HorizontalThumbnailSize;
+
+                var transform = new BitmapTransform()
+                {
+                    ScaledWidth = size,
+                    ScaledHeight = size,
+                    InterpolationMode = BitmapInterpolationMode.Fant
+                };
+                SoftwareBitmap thumbnailSmall
+                    = await decoder.GetSoftwareBitmapAsync(
+                        thumbnailLarge.BitmapPixelFormat,
+                        thumbnailLarge.BitmapAlphaMode,
+                        transform,
+                        ExifOrientationMode.IgnoreExifOrientation,
+                        ColorManagementMode.ColorManageToSRgb);
+
+                var sourceLarge = new SoftwareBitmapSource();
+                await sourceLarge.SetBitmapAsync(thumbnailLarge);
+
+                var sourceSmall = new SoftwareBitmapSource();
+                await sourceSmall.SetBitmapAsync(thumbnailSmall);
+                return (sourceSmall, sourceLarge);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error while trying to retirve media thumbnail.");
+            _logger.LogError(ex, "Error while trying to retrieve media thumbnail.");
+        }
+        finally
+        {
+            thumbnail?.Dispose();
         }
 
         return (null, null);
