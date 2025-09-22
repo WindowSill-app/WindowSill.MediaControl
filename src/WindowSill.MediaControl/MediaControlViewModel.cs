@@ -163,7 +163,6 @@ internal sealed partial class MediaControlViewModel : ObservableObject
             {
                 if (session != _currentSession)
                 {
-
                     if (_currentSession is not null && _mediaPlaybackDataSource is not null)
                     {
                         _mediaPlaybackDataSource.MediaPlaybackDataChanged -= MediaPlaybackDataSource_MediaPlaybackDataChanged;
