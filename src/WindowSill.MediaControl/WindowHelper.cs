@@ -25,7 +25,7 @@ internal static class WindowHelper
             PInvoke.GetWindowThreadProcessId(windowHwnd, &processId);
         }
 
-        var visibleWindow = FindFirstVisibleWindowForProcess(processId);
+        HWND visibleWindow = FindFirstVisibleWindowForProcess(processId);
         if (visibleWindow != HWND.Null)
         {
             TryActivateWindow(visibleWindow);

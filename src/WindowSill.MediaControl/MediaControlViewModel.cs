@@ -7,7 +7,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using NPSMLib;
 
 using Windows.Graphics.Imaging;
-
+using Windows.Storage.Streams;
 using WindowSill.API;
 
 namespace WindowSill.MediaControl;
@@ -17,7 +17,7 @@ internal sealed partial class MediaControlViewModel : ObservableObject
     private const uint HorizontalThumbnailSize = 40;
     private const uint VerticalThumbnailSize = 64;
 
-    private readonly Lock @lock = new();
+    private readonly Lock _lock = new();
     private readonly ILogger _logger;
     private readonly ISettingsProvider _settingsProvider;
 
@@ -70,7 +70,7 @@ internal sealed partial class MediaControlViewModel : ObservableObject
 
     internal void SwitchToPlayingSourceWindow()
     {
-        lock (@lock)
+        lock (_lock)
         {
             if (_currentSession is not null)
             {
@@ -159,13 +159,17 @@ internal sealed partial class MediaControlViewModel : ObservableObject
     {
         await ThreadHelper.RunOnUIThreadAsync(async () =>
         {
-            lock (@lock)
+            lock (_lock)
             {
                 if (session != _currentSession)
                 {
                     if (_currentSession is not null && _mediaPlaybackDataSource is not null)
                     {
-                        _mediaPlaybackDataSource.MediaPlaybackDataChanged -= MediaPlaybackDataSource_MediaPlaybackDataChanged;
+                        try
+                        {
+                            _mediaPlaybackDataSource.MediaPlaybackDataChanged -= MediaPlaybackDataSource_MediaPlaybackDataChanged;
+                        }
+                        catch { }
                     }
 
                     _currentSession = session;
@@ -173,13 +177,17 @@ internal sealed partial class MediaControlViewModel : ObservableObject
                     if (_currentSession is not null)
                     {
                         _mediaPlaybackDataSource = _currentSession.ActivateMediaPlaybackDataSource();
-                        _mediaPlaybackDataSource.MediaPlaybackDataChanged += MediaPlaybackDataSource_MediaPlaybackDataChanged;
+                        try
+                        {
+                            _mediaPlaybackDataSource.MediaPlaybackDataChanged += MediaPlaybackDataSource_MediaPlaybackDataChanged;
+                        }
+                        catch { }
                     }
                 }
             }
 
-            var currentSession = _currentSession;
-            var mediaPlaybackDataSource = _mediaPlaybackDataSource;
+            NowPlayingSession? currentSession = _currentSession;
+            MediaPlaybackDataSource? mediaPlaybackDataSource = _mediaPlaybackDataSource;
 
             try
             {
@@ -189,9 +197,20 @@ internal sealed partial class MediaControlViewModel : ObservableObject
                     {
                         MediaObjectInfo mediaInfo = mediaPlaybackDataSource.GetMediaObjectInfo();
 
-                        SongName = mediaInfo.Title;
-                        ArtistName = mediaInfo.Artist;
-                        SongAndArtistName = $"{mediaInfo.Artist} - {mediaInfo.Title}";
+                        SongName = mediaInfo.Title ?? string.Empty;
+                        ArtistName = mediaInfo.Artist ?? string.Empty;
+                        if (string.IsNullOrEmpty(mediaInfo.Artist))
+                        {
+                            SongAndArtistName = mediaInfo.Title ?? string.Empty;
+                        }
+                        else if (string.IsNullOrEmpty(mediaInfo.Title))
+                        {
+                            SongAndArtistName = mediaInfo.Artist ?? string.Empty;
+                        }
+                        else
+                        {
+                            SongAndArtistName = $"{mediaInfo.Artist} - {mediaInfo.Title}";
+                        }
 
                         (ImageSource? thumbnail, ImageSource? thumbnailLarge) = await GetThumbnailImageSourceAsync(mediaPlaybackDataSource.GetThumbnailStream());
                         Thumbnail = thumbnail;
@@ -242,7 +261,7 @@ internal sealed partial class MediaControlViewModel : ObservableObject
         {
             if (thumbnail is not null)
             {
-                using var thumbnailStream = thumbnail.AsRandomAccessStream();
+                using IRandomAccessStream thumbnailStream = thumbnail.AsRandomAccessStream();
 
                 // Create the decoder from the stream
                 BitmapDecoder decoder = await BitmapDecoder.CreateAsync(thumbnailStream);

@@ -6,12 +6,16 @@
         <LangVersion>preview</LangVersion>
 
         <PackageId>WindowSill.MediaControl</PackageId>
-        <Version>0.5.0</Version>
+        <Version>0.6.0</Version>
         <Authors>Etienne Baudoux</Authors>
         <Title>Media Control</Title>
         <Description>
-            Skip and pause your music or video without breaking your concentration.
-            Works seamlessly with Spotify, YouTube, Netflix, Apple Music, Deezer, and virtually any media player on your system.
+          Skip and pause your music or video without breaking your concentration.
+          Works seamlessly with Spotify, YouTube, Netflix, Apple Music, Deezer, and virtually any media player on your system.
+
+          What's new:
+          - Fixed a crash when no media session is active.
+          - The song name is now vertically centered if there's no artist name.
         </Description>
         <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
         <PackageProjectUrl>https://getwindowsill.app</PackageProjectUrl>

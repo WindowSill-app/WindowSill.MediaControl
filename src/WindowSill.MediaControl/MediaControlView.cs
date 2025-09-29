@@ -154,9 +154,19 @@ internal class MediaControlView
         OnIsSillOrientationOrSizeChanged(null, EventArgs.Empty);
         View.IsSillOrientationOrSizeChanged += OnIsSillOrientationOrSizeChanged;
         _thumbnailAndTitlesGrid.PointerPressed += ThumbnailAndTitlesGrid_PointerPressed;
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        ArtistNameUpdated();
     }
 
     internal SillView View { get; }
+
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MediaControlViewModel.SongAndArtistName))
+        {
+            ArtistNameUpdated();
+        }
+    }
 
     private void ThumbnailAndTitlesGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -239,6 +249,20 @@ internal class MediaControlView
 
             default:
                 throw new NotSupportedException($"Unsupported SillOrientationAndSize: {View.SillOrientationAndSize}");
+        }
+    }
+
+    private void ArtistNameUpdated()
+    {
+        if (string.IsNullOrEmpty(_viewModel.ArtistName))
+        {
+            _songTextBlock.Grid(row: 0, column: 1, rowSpan: 2);
+            _songTextBlock.VerticalAlignment(VerticalAlignment.Center);
+        }
+        else
+        {
+            _songTextBlock.Grid(row: 0, column: 1, rowSpan: 1);
+            _songTextBlock.VerticalAlignment(VerticalAlignment.Bottom);
         }
     }
 }
