@@ -1,3 +1,6 @@
+# 0.7.1.0
+- Fixed crash happening when failing to retrieve media information.
+
 # 0.7.0.0
 - Updated dependencies.
 

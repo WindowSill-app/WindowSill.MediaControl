@@ -126,18 +126,18 @@ internal sealed partial class MediaControlViewModel : ObservableObject
         }
         else if (args.SettingName == PredefinedSettings.SillLocation.Name)
         {
-            UpdateInfoAsync(_sessionManager?.CurrentSession).Forget();
+            UpdateInfoAsync(_sessionManager?.CurrentSession).ForgetSafely();
         }
     }
 
     private void SessionManager_SessionListChanged(object? sender, NowPlayingSessionManagerEventArgs e)
     {
-        UpdateInfoAsync(_sessionManager?.CurrentSession).Forget();
+        UpdateInfoAsync(_sessionManager?.CurrentSession).ForgetSafely();
     }
 
     private void MediaPlaybackDataSource_MediaPlaybackDataChanged(object? sender, MediaPlaybackDataChangedArgs e)
     {
-        UpdateInfoAsync(_sessionManager?.CurrentSession).Forget();
+        UpdateInfoAsync(_sessionManager?.CurrentSession).ForgetSafely();
     }
 
     private async Task InitializeAsync()
