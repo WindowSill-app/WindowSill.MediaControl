@@ -1,3 +1,6 @@
+# 0.7.2.0
+- Improved Spanish translation.
+
 # 0.7.1.0
 - Fixed crash happening when failing to retrieve media information.
 
