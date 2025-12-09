@@ -121,6 +121,6 @@
     <value>Chung</value>
   </data>
   <data name="ShowMediaNameAndThumbnail" xml:space="preserve">
-    <value>Hiển thị tên phương tiện truyền thông và hình thu nhỏ</value>
+    <value>Hiển thị tên phương tiện và hình thu nhỏ</value>
   </data>
 </root>
