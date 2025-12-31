@@ -1,3 +1,7 @@
+# 0.7.3
+- Added translation for Portuguese.
+- Improved other translations.
+
 # 0.7.2.0
 - Improved Spanish translation.
 
